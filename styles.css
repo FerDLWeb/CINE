@@ -343,6 +343,64 @@ select,
   color: var(--danger);
 }
 
+.cinema-alert {
+  position: relative;
+  overflow: hidden;
+  border: 2px solid #f0c36b !important;
+  border-radius: 1rem !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255, 255, 255, 0.08), transparent 42%),
+    linear-gradient(160deg, #131a24 0%, #1f2b3b 58%, #0f141d 100%) !important;
+  color: #f2f6fb !important;
+  box-shadow: 0 24px 44px rgba(0, 0, 0, 0.48) !important;
+}
+
+.cinema-alert::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 32px;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(179, 35, 52, 0.9) 0 18px,
+    rgba(142, 20, 38, 0.9) 18px 36px
+  );
+  opacity: 0.45;
+}
+
+.cinema-alert-title {
+  margin-top: 0.8rem;
+  font-family: "Space Grotesk", sans-serif !important;
+  color: #ffd27d !important;
+  letter-spacing: 0.02em;
+}
+
+.cinema-alert-text {
+  color: #dce7f5 !important;
+  font-weight: 500;
+}
+
+.cinema-alert-btn {
+  border: 0 !important;
+  border-radius: 0.62rem !important;
+  padding: 0.64rem 1rem !important;
+  min-width: 170px;
+  font-weight: 700 !important;
+  background: linear-gradient(135deg, #b52b3d, #e06441) !important;
+  color: #fff !important;
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.32);
+}
+
+.cinema-alert .swal2-icon.swal2-success {
+  border-color: #59d3b1 !important;
+  color: #59d3b1 !important;
+}
+
+.cinema-alert .swal2-icon.swal2-error {
+  border-color: #ff8e8e !important;
+  color: #ff8e8e !important;
+}
+
 @media (max-width: 880px) {
   .panel-group {
     grid-template-columns: 1fr;

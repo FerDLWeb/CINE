@@ -1,6 +1,28 @@
 ﻿const EXCHANGE_RATE = 7.8;
 const THEME_KEY = "cine_theme";
 
+/*
+  Usuarios de tarjeta autorizados (pruebas):
+  1) Metodo: Tarjeta de credito | Nombre: Ana Lopez | Tarjeta: 4111 1111 1111 1111 | Vencimiento: 08/28 | CVV: 123
+  2) Metodo: Tarjeta de debito | Nombre: Luis Ramirez | Tarjeta: 5555 5555 5555 4444 | Vencimiento: 11/29 | CVV: 456
+*/
+const AUTHORIZED_CARDS = [
+  {
+    method: "Tarjeta de credito",
+    holder: "Ana Lopez",
+    number: "4111111111111111",
+    exp: "08/28",
+    cvv: "123"
+  },
+  {
+    method: "Tarjeta de debito",
+    holder: "Luis Ramirez",
+    number: "5555555555554444",
+    exp: "11/29",
+    cvv: "456"
+  }
+];
+
 const movies = [
   {
     id: "movie-1",
@@ -60,6 +82,7 @@ const statusEl = document.getElementById("status");
 const reservationIdEl = document.getElementById("reservationId");
 const reservationPaymentEl = document.getElementById("reservationPayment");
 const reservationDateEl = document.getElementById("reservationDate");
+const paymentMethodHintEl = document.getElementById("paymentMethodHint");
 
 function getMovie() {
   return movies.find((movie) => movie.id === selectedMovieId);
@@ -87,11 +110,56 @@ function dualPriceLabel(priceGTQ) {
   return `${formatPrice(priceGTQ, "GTQ")} / ${formatPrice(priceGTQ, "USD")}`;
 }
 
-function setStatus(message, tone = "success") {
+function showCinemaAlert(message, tone = "success") {
+  if (!window.Swal) return;
+
+  const variants = {
+    success: {
+      icon: "success",
+      title: "Funcion confirmada",
+      button: "Ir a la sala"
+    },
+    error: {
+      icon: "error",
+      title: "Corte en proyeccion",
+      button: "Intentar de nuevo"
+    },
+    info: {
+      icon: "info",
+      title: "Aviso del cine",
+      button: "Entendido"
+    }
+  };
+
+  const preset = variants[tone] || variants.info;
+
+  window.Swal.fire({
+    icon: preset.icon,
+    title: preset.title,
+    text: message,
+    confirmButtonText: preset.button,
+    customClass: {
+      popup: "cinema-alert",
+      title: "cinema-alert-title",
+      htmlContainer: "cinema-alert-text",
+      confirmButton: "cinema-alert-btn"
+    },
+    buttonsStyling: false,
+    backdrop: "rgba(4, 9, 16, 0.78)",
+    timer: tone === "success" ? 4200 : undefined,
+    timerProgressBar: tone === "success"
+  });
+}
+
+function setStatus(message, tone = "success", options = {}) {
+  const { alert = true } = options;
   statusEl.textContent = message;
   statusEl.classList.remove("error");
   if (tone === "error") {
     statusEl.classList.add("error");
+  }
+  if (alert) {
+    showCinemaAlert(message, tone);
   }
 }
 
@@ -205,23 +273,100 @@ function toDigits(value) {
   return value.replace(/\D/g, "");
 }
 
+function normalizeHolderName(value) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeExpDate(value) {
+  const digits = toDigits(value);
+
+  if (digits.length === 3) {
+    return `0${digits.slice(0, 1)}/${digits.slice(1)}`;
+  }
+
+  if (digits.length === 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+
+  if (digits.length === 6) {
+    return `${digits.slice(0, 2)}/${digits.slice(4)}`;
+  }
+
+  return value.trim();
+}
+
+function holderNameMatches(inputName, registeredName) {
+  const inputTokens = normalizeHolderName(inputName).split(" ").filter(Boolean);
+  const registeredTokens = normalizeHolderName(registeredName).split(" ").filter(Boolean);
+
+  if (inputTokens.length === 0 || registeredTokens.length === 0) {
+    return false;
+  }
+
+  return registeredTokens.every((token) => inputTokens.includes(token));
+}
+
+function isCardMethod(method) {
+  return method === "Tarjeta de credito" || method === "Tarjeta de debito";
+}
+
+function syncPaymentInputsByMethod() {
+  const method = paymentMethodEl.value;
+  const isCardPayment = isCardMethod(method);
+  const paymentInputs = [cardNameEl, cardNumberEl, expDateEl, cvvEl];
+
+  paymentInputs.forEach((input) => {
+    input.disabled = !isCardPayment;
+    input.required = isCardPayment;
+  });
+
+  if (!isCardPayment) {
+    cardNameEl.value = "";
+    cardNumberEl.value = "";
+    expDateEl.value = "";
+    cvvEl.value = "";
+    cardNumberEl.placeholder = "1234 5678 9012 3456";
+    cvvEl.placeholder = "123";
+    if (paymentMethodHintEl) {
+      paymentMethodHintEl.textContent = "Selecciona credito o debito para ingresar los datos requeridos.";
+    }
+    return;
+  }
+
+  cardNumberEl.placeholder = method === "Tarjeta de credito"
+    ? "Numero de tarjeta de credito"
+    : "Numero de tarjeta de debito";
+  cvvEl.placeholder = method === "Tarjeta de credito" ? "CVV (3 o 4)" : "CVV (3)";
+
+  if (paymentMethodHintEl) {
+    paymentMethodHintEl.textContent = method === "Tarjeta de credito"
+      ? "Credito: nombre, numero, vencimiento y CVV (3 o 4)."
+      : "Debito: nombre, numero, vencimiento y CVV (3).";
+  }
+}
+
 function validatePayment() {
   const method = paymentMethodEl.value;
   const name = cardNameEl.value.trim();
   const numberDigits = toDigits(cardNumberEl.value);
-  const exp = expDateEl.value.trim();
+  const exp = normalizeExpDate(expDateEl.value);
   const cvvDigits = toDigits(cvvEl.value);
 
   if (!method) {
     return { valid: false, message: "Selecciona un metodo de pago." };
   }
 
-  if (name.length < 3) {
-    return { valid: false, message: "Ingresa el nombre del titular." };
+  if (!isCardMethod(method)) {
+    return { valid: false, message: "Metodo de pago no disponible." };
   }
 
-  if (method === "PayPal") {
-    return { valid: true, method };
+  if (name.length < 3) {
+    return { valid: false, message: "Ingresa el nombre del titular." };
   }
 
   if (numberDigits.length < 13 || numberDigits.length > 19) {
@@ -232,8 +377,37 @@ function validatePayment() {
     return { valid: false, message: "Fecha de vencimiento invalida. Usa MM/AA." };
   }
 
-  if (cvvDigits.length < 3 || cvvDigits.length > 4) {
-    return { valid: false, message: "Ingresa un CVV valido." };
+  if (method === "Tarjeta de credito" && (cvvDigits.length < 3 || cvvDigits.length > 4)) {
+    return { valid: false, message: "Para credito, ingresa un CVV de 3 o 4 digitos." };
+  }
+
+  if (method === "Tarjeta de debito" && cvvDigits.length !== 3) {
+    return { valid: false, message: "Para debito, ingresa un CVV de 3 digitos." };
+  }
+
+  const cardByNumber = AUTHORIZED_CARDS.find((card) => card.number === numberDigits);
+
+  if (!cardByNumber) {
+    return { valid: false, message: "Numero de tarjeta no autorizado." };
+  }
+
+  if (cardByNumber.method !== method) {
+    return {
+      valid: false,
+      message: `Esta tarjeta solo esta autorizada para ${cardByNumber.method}.`
+    };
+  }
+
+  if (!holderNameMatches(name, cardByNumber.holder)) {
+    return { valid: false, message: "El nombre del titular no coincide con la tarjeta." };
+  }
+
+  if (cardByNumber.exp !== exp) {
+    return { valid: false, message: "La fecha de vencimiento no coincide con la tarjeta." };
+  }
+
+  if (cardByNumber.cvv !== cvvDigits) {
+    return { valid: false, message: "El CVV no coincide con la tarjeta." };
   }
 
   return { valid: true, method };
@@ -287,6 +461,7 @@ function reserveSeats(event) {
 
   selectedSeats = new Set();
   paymentFormEl.reset();
+  syncPaymentInputsByMethod();
   clearStatus();
   setStatus(`Reserva confirmada (${currentReservation.id}) para ${currentReservation.movieName}.`);
 
@@ -349,6 +524,161 @@ function escapePdfText(value) {
 
 function toPdfSafeText(value) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E]/g, " ");
+}
+
+function drawStyledTicket(doc, reservation) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  const frameX = 8;
+  const frameY = 8;
+  const frameW = pageWidth - 16;
+  const frameH = pageHeight - 16;
+
+  const ticketX = 12;
+  const ticketY = 12;
+  const ticketW = pageWidth - 24;
+  const ticketH = pageHeight - 24;
+
+  const mainX = 16;
+  const mainY = 16;
+  const mainW = pageWidth - 64;
+  const mainH = pageHeight - 32;
+
+  const stubX = mainX + mainW + 4;
+  const stubY = mainY;
+  const stubW = 36;
+  const stubH = mainH;
+
+  doc.setFillColor(13, 19, 28);
+  doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+  doc.setFillColor(140, 30, 45);
+  doc.roundedRect(frameX, frameY, frameW, frameH, 6, 6, "F");
+
+  doc.setFillColor(244, 237, 214);
+  doc.roundedRect(ticketX, ticketY, ticketW, ticketH, 5, 5, "F");
+
+  doc.setFillColor(17, 31, 51);
+  doc.roundedRect(mainX, mainY, mainW, mainH, 4, 4, "F");
+
+  doc.setFillColor(108, 18, 35);
+  doc.roundedRect(stubX, stubY, stubW, stubH, 4, 4, "F");
+
+  const perforationX = mainX + mainW + 2;
+  doc.setLineWidth(0.5);
+  doc.setDrawColor(244, 237, 214);
+  doc.setLineDashPattern([1.2, 1.2], 0);
+  doc.line(perforationX, mainY + 2, perforationX, mainY + mainH - 2);
+  doc.setLineDashPattern([], 0);
+
+  doc.setFillColor(13, 19, 28);
+  doc.circle(perforationX, mainY + 2, 1.7, "F");
+  doc.circle(perforationX, mainY + mainH - 2, 1.7, "F");
+
+  doc.setTextColor(255, 214, 123);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("CINE PREMIERE", mainX + 4, mainY + 10);
+
+  doc.setTextColor(216, 226, 241);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.5);
+  doc.text("Ticket oficial de funcion", mainX + 4, mainY + 15.5);
+
+  const maxValueWidth = mainW - 44;
+  let textY = mainY + 25;
+  const rows = [
+    ["Reserva", reservation.id],
+    ["Pelicula", reservation.movieName],
+    ["Horario", reservation.schedule],
+    ["Pago", reservation.paymentMethod],
+    ["Fecha", reservation.date]
+  ];
+
+  rows.forEach(([label, value]) => {
+    const safeValue = toPdfSafeText(String(value));
+    const lines = doc.splitTextToSize(safeValue, maxValueWidth);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 214, 123);
+    doc.text(`${label}:`, mainX + 4, textY);
+
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(241, 246, 255);
+    doc.text(lines, mainX + 28, textY);
+    textY += Math.max(6, lines.length * 5.2);
+  });
+
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 214, 123);
+  doc.setFontSize(10);
+  doc.text("Asientos", mainX + 4, mainY + mainH - 25);
+
+  let chipX = mainX + 4;
+  let chipY = mainY + mainH - 20;
+  reservation.seats.forEach((seat) => {
+    const chipW = 9 + seat.length * 2.2;
+    if (chipX + chipW > mainX + mainW - 4) {
+      chipX = mainX + 4;
+      chipY += 8;
+    }
+
+    doc.setFillColor(255, 214, 123);
+    doc.roundedRect(chipX, chipY, chipW, 5.8, 1.2, 1.2, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(30, 30, 30);
+    doc.text(seat, chipX + chipW / 2, chipY + 3.9, { align: "center" });
+
+    chipX += chipW + 1.8;
+  });
+
+  doc.setFillColor(255, 214, 123);
+  doc.roundedRect(mainX + mainW - 58, mainY + mainH - 22, 54, 18, 2, 2, "F");
+  doc.setTextColor(26, 26, 26);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.text("TOTAL", mainX + mainW - 54, mainY + mainH - 15);
+  doc.setFontSize(12.5);
+  doc.text(formatPrice(reservation.totalGTQ, "GTQ"), mainX + mainW - 54, mainY + mainH - 8);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.4);
+  doc.text(formatPrice(reservation.totalGTQ, "USD"), mainX + mainW - 54, mainY + mainH - 3.5);
+
+  const stubCenterX = stubX + stubW / 2;
+  doc.setTextColor(255, 214, 123);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("ADMIT ONE", stubCenterX, stubY + 10, { align: "center" });
+
+  doc.setFontSize(9);
+  doc.setTextColor(248, 248, 248);
+  doc.text(toPdfSafeText(reservation.schedule), stubCenterX, stubY + 16, { align: "center" });
+  doc.text(toPdfSafeText(reservation.id), stubCenterX, stubY + 21.5, { align: "center" });
+
+  doc.setFontSize(8);
+  doc.text("Sala 7", stubCenterX, stubY + 27, { align: "center" });
+  doc.text("Asientos", stubCenterX, stubY + 33, { align: "center" });
+
+  const stubSeatLines = doc.splitTextToSize(toPdfSafeText(reservation.seats.join(" ")), stubW - 6);
+  doc.text(stubSeatLines, stubX + 3, stubY + 38);
+
+  const seed = `${reservation.id}${reservation.seats.join("")}${reservation.schedule}`;
+  let barX = stubX + 3.5;
+  const barBaseY = stubY + stubH - 10;
+  for (let i = 0; i < 44; i += 1) {
+    const code = seed.charCodeAt(i % seed.length);
+    const barW = code % 3 === 0 ? 0.9 : 0.45;
+    const barH = code % 2 === 0 ? 16 : 12;
+    doc.setFillColor(242, 237, 220);
+    doc.rect(barX, barBaseY - barH, barW, barH, "F");
+    barX += barW + 0.6;
+    if (barX > stubX + stubW - 2) break;
+  }
+
+  doc.setTextColor(245, 245, 245);
+  doc.setFontSize(7.5);
+  doc.text(toPdfSafeText(reservation.id), stubCenterX, stubY + stubH - 3, { align: "center" });
 }
 
 function generateFallbackPdf(lines, fileName) {
@@ -418,23 +748,12 @@ function generateTicketPdf() {
   try {
     if (window.jspdf && window.jspdf.jsPDF) {
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF();
-
-      doc.setFillColor(14, 93, 88);
-      doc.rect(0, 0, 210, 26, "F");
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(18);
-      doc.text("Boleto de Cine", 14, 16);
-
-      doc.setTextColor(0, 0, 0);
-      doc.setFontSize(12);
-
-      let y = 38;
-      lines.forEach((line) => {
-        doc.text(line, 14, y);
-        y += 8;
+      const doc = new jsPDF({
+        orientation: "landscape",
+        unit: "mm",
+        format: "a5"
       });
-
+      drawStyledTicket(doc, currentReservation);
       doc.save(fileName);
       setStatus("Boleto PDF generado correctamente.");
       return;
@@ -484,6 +803,11 @@ currencyEl.addEventListener("change", (event) => {
   renderSummary();
 });
 
+paymentMethodEl.addEventListener("change", () => {
+  clearStatus();
+  syncPaymentInputsByMethod();
+});
+
 themeToggleEl.addEventListener("click", () => {
   const nextTheme = document.body.classList.contains("dark") ? "light" : "dark";
   localStorage.setItem(THEME_KEY, nextTheme);
@@ -495,6 +819,7 @@ cancelBtnEl.addEventListener("click", cancelReservation);
 pdfBtnEl.addEventListener("click", generateTicketPdf);
 
 bindInputMasks();
+syncPaymentInputsByMethod();
 initTheme();
 renderMovies();
 renderSeatMap();
