@@ -491,15 +491,19 @@ function cancelReservation() {
   syncActionButtons();
 }
 
-function getTicketLines() {
+function getTicketLinesForSeat(ticketSeat, ticketNumber, ticketCount) {
+  const safeTicketCount = Math.max(ticketCount, 1);
+  const perTicketGTQ = currentReservation.totalGTQ / safeTicketCount;
+
   return [
     `Codigo de reserva: ${currentReservation.id}`,
+    `Ticket: ${ticketNumber}/${safeTicketCount}`,
     `Pelicula: ${currentReservation.movieName}`,
     `Horario: ${currentReservation.schedule}`,
-    `Asientos: ${currentReservation.seats.join(", ")}`,
+    `Asiento: ${ticketSeat}`,
     `Pago: ${currentReservation.paymentMethod}`,
-    `Total GTQ: ${formatPrice(currentReservation.totalGTQ, "GTQ")}`,
-    `Total USD: ${formatPrice(currentReservation.totalGTQ, "USD")}`,
+    `Total GTQ (ticket): ${formatPrice(perTicketGTQ, "GTQ")}`,
+    `Total USD (ticket): ${formatPrice(perTicketGTQ, "USD")}`,
     `Fecha: ${currentReservation.date}`
   ];
 }
@@ -526,9 +530,13 @@ function toPdfSafeText(value) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E]/g, " ");
 }
 
-function drawStyledTicket(doc, reservation) {
+function drawStyledTicket(doc, reservation, seatId, ticketNumber, ticketCount) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
+  const safeSeat = seatId || "-";
+  const safeTicketNumber = Number(ticketNumber) || 1;
+  const safeTicketCount = Number(ticketCount) || 1;
+  const perTicketGTQ = reservation.totalGTQ / safeTicketCount;
 
   const frameX = 8;
   const frameY = 8;
@@ -539,16 +547,17 @@ function drawStyledTicket(doc, reservation) {
   const ticketY = 12;
   const ticketW = pageWidth - 24;
   const ticketH = pageHeight - 24;
+  const ticketPadding = 4;
+  const sectionGap = 3;
+  const stubW = 30;
 
-  const mainX = 16;
-  const mainY = 16;
-  const mainW = pageWidth - 64;
-  const mainH = pageHeight - 32;
-
-  const stubX = mainX + mainW + 4;
+  const mainX = ticketX + ticketPadding;
+  const mainY = ticketY + ticketPadding;
+  const mainH = ticketH - ticketPadding * 2;
+  const stubX = ticketX + ticketW - ticketPadding - stubW;
   const stubY = mainY;
-  const stubW = 36;
   const stubH = mainH;
+  const mainW = stubX - sectionGap - mainX;
 
   doc.setFillColor(13, 19, 28);
   doc.rect(0, 0, pageWidth, pageHeight, "F");
@@ -565,7 +574,7 @@ function drawStyledTicket(doc, reservation) {
   doc.setFillColor(108, 18, 35);
   doc.roundedRect(stubX, stubY, stubW, stubH, 4, 4, "F");
 
-  const perforationX = mainX + mainW + 2;
+  const perforationX = mainX + mainW + sectionGap / 2;
   doc.setLineWidth(0.5);
   doc.setDrawColor(244, 237, 214);
   doc.setLineDashPattern([1.2, 1.2], 0);
@@ -590,8 +599,10 @@ function drawStyledTicket(doc, reservation) {
   let textY = mainY + 25;
   const rows = [
     ["Reserva", reservation.id],
+    ["Ticket", `${safeTicketNumber}/${safeTicketCount}`],
     ["Pelicula", reservation.movieName],
     ["Horario", reservation.schedule],
+    ["Asiento", safeSeat],
     ["Pago", reservation.paymentMethod],
     ["Fecha", reservation.date]
   ];
@@ -612,26 +623,19 @@ function drawStyledTicket(doc, reservation) {
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 214, 123);
   doc.setFontSize(10);
-  doc.text("Asientos", mainX + 4, mainY + mainH - 25);
+  doc.text("Asiento", mainX + 4, mainY + mainH - 25);
 
-  let chipX = mainX + 4;
-  let chipY = mainY + mainH - 20;
-  reservation.seats.forEach((seat) => {
-    const chipW = 9 + seat.length * 2.2;
-    if (chipX + chipW > mainX + mainW - 4) {
-      chipX = mainX + 4;
-      chipY += 8;
-    }
+  const chipX = mainX + 4;
+  const chipY = mainY + mainH - 20;
+  const safeSeatText = toPdfSafeText(String(safeSeat));
+  const chipW = Math.min(Math.max(18, 9 + safeSeatText.length * 2.2), mainW - 8);
 
-    doc.setFillColor(255, 214, 123);
-    doc.roundedRect(chipX, chipY, chipW, 5.8, 1.2, 1.2, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(30, 30, 30);
-    doc.text(seat, chipX + chipW / 2, chipY + 3.9, { align: "center" });
-
-    chipX += chipW + 1.8;
-  });
+  doc.setFillColor(255, 214, 123);
+  doc.roundedRect(chipX, chipY, chipW, 5.8, 1.2, 1.2, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(30, 30, 30);
+  doc.text(safeSeatText, chipX + chipW / 2, chipY + 3.9, { align: "center" });
 
   doc.setFillColor(255, 214, 123);
   doc.roundedRect(mainX + mainW - 58, mainY + mainH - 22, 54, 18, 2, 2, "F");
@@ -640,10 +644,10 @@ function drawStyledTicket(doc, reservation) {
   doc.setFontSize(8.5);
   doc.text("TOTAL", mainX + mainW - 54, mainY + mainH - 15);
   doc.setFontSize(12.5);
-  doc.text(formatPrice(reservation.totalGTQ, "GTQ"), mainX + mainW - 54, mainY + mainH - 8);
+  doc.text(formatPrice(perTicketGTQ, "GTQ"), mainX + mainW - 54, mainY + mainH - 8);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.4);
-  doc.text(formatPrice(reservation.totalGTQ, "USD"), mainX + mainW - 54, mainY + mainH - 3.5);
+  doc.text(formatPrice(perTicketGTQ, "USD"), mainX + mainW - 54, mainY + mainH - 3.5);
 
   const stubCenterX = stubX + stubW / 2;
   doc.setTextColor(255, 214, 123);
@@ -657,13 +661,13 @@ function drawStyledTicket(doc, reservation) {
   doc.text(toPdfSafeText(reservation.id), stubCenterX, stubY + 21.5, { align: "center" });
 
   doc.setFontSize(8);
-  doc.text("Sala 7", stubCenterX, stubY + 27, { align: "center" });
-  doc.text("Asientos", stubCenterX, stubY + 33, { align: "center" });
+  doc.text(`Ticket ${safeTicketNumber}/${safeTicketCount}`, stubCenterX, stubY + 27, { align: "center" });
+  doc.text("Asiento", stubCenterX, stubY + 33, { align: "center" });
 
-  const stubSeatLines = doc.splitTextToSize(toPdfSafeText(reservation.seats.join(" ")), stubW - 6);
+  const stubSeatLines = doc.splitTextToSize(toPdfSafeText(String(safeSeat)), stubW - 6);
   doc.text(stubSeatLines, stubX + 3, stubY + 38);
 
-  const seed = `${reservation.id}${reservation.seats.join("")}${reservation.schedule}`;
+  const seed = `${reservation.id}${safeSeat}${reservation.schedule}${safeTicketNumber}`;
   let barX = stubX + 3.5;
   const barBaseY = stubY + stubH - 10;
   for (let i = 0; i < 44; i += 1) {
@@ -742,7 +746,8 @@ function generateTicketPdf() {
     return;
   }
 
-  const lines = getTicketLines();
+  const seats = currentReservation.seats.length > 0 ? currentReservation.seats : ["-"];
+  const totalTickets = seats.length;
   const fileName = `boleto-${currentReservation.id}.pdf`;
 
   try {
@@ -753,14 +758,29 @@ function generateTicketPdf() {
         unit: "mm",
         format: "a5"
       });
-      drawStyledTicket(doc, currentReservation);
+
+      seats.forEach((seatId, index) => {
+        if (index > 0) {
+          doc.addPage();
+        }
+
+        drawStyledTicket(doc, currentReservation, seatId, index + 1, totalTickets);
+      });
+
       doc.save(fileName);
-      setStatus("Boleto PDF generado correctamente.");
+      setStatus(`Se generaron ${totalTickets} boletos en un solo PDF.`);
       return;
     }
 
-    generateFallbackPdf(lines, fileName);
-    setStatus("Boleto PDF generado correctamente (modo compatible).");
+    const fallbackLines = [];
+    seats.forEach((seatId, index) => {
+      fallbackLines.push(`--- Ticket ${index + 1}/${totalTickets} ---`);
+      fallbackLines.push(...getTicketLinesForSeat(seatId, index + 1, totalTickets));
+      fallbackLines.push("");
+    });
+
+    generateFallbackPdf(fallbackLines, fileName);
+    setStatus(`Se generaron ${totalTickets} boletos en un solo PDF (modo compatible).`);
   } catch (error) {
     console.error(error);
     setStatus("No fue posible generar el PDF en este navegador.", "error");
